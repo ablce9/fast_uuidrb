@@ -11,35 +11,31 @@ static VALUE FastUUID;
 #define UUID_VERSION_4 0x4
 
 #define UUID_SIZE 36
-#define UUID_FIRST_SEGMENT_SIZE  8
 
-#define UUID_SECOND_SEGMENT_SIZE 4
-#define UUID_SECOND_SEGMENT_END_INDEX  11
+#define UUID_VERSION_INDEX 12
 
-#define UUID_THIRD_SEGMENT_SIZE  4
-#define UUID_THIRD_SEGMENT_END_INDEX  14
-
-#define UUID_FOURTH_SEGMENT_SIZE 4
-#define UUID_FOURTH_SEGMENT_SEGMENT_START_INDEX 19
-
-#define UUID_FIFTH_SEGMENT_SIZE  12
-#define UUID_FIFTH_SEGMENT_START_INDEX  24
+#define UUID_FIRST_SEGMENT_INDEX_END  8
+#define UUID_SECOND_SEGMENT_INDEX_END  12
+#define UUID_THIRD_SEGMENT_INDEX_END  16
+#define UUID_FOURTH_SEGMENT_SEGMENT_INDEX_END 20
+#define UUID_FIFTH_SEGMENT_INDEX_END  32
 
 typedef struct {
     int current_segment_number;
     char *uuid;
     int pos;
     uint8_t version;
+    uint8_t variant;
 } fast_uuid_t;
 
 static fast_uuid_t *fs_check_segment(fast_uuid_t *fast_uuid) {
 
-    char *uuid = fast_uuid->uuid, *p, ch, *segment;
-    uint8_t version = 0;
+    char *uuid = fast_uuid->uuid, *p, *segment, ch;
 
     switch (fast_uuid->current_segment_number) {
 
     case 0:
+
 	for (p = uuid; p < uuid + UUID_SIZE; p++) {
 
 	    ch = *p;
@@ -50,7 +46,7 @@ static fast_uuid_t *fs_check_segment(fast_uuid_t *fast_uuid) {
 
 	    ++fast_uuid->pos;
 
-	    if (fast_uuid->pos == UUID_FIRST_SEGMENT_SIZE) {
+	    if (fast_uuid->pos == UUID_FIRST_SEGMENT_INDEX_END) {
 		break;
 	    }
 	}
@@ -59,7 +55,7 @@ static fast_uuid_t *fs_check_segment(fast_uuid_t *fast_uuid) {
 	break;
 
     case 1:
-	segment = uuid + UUID_FIRST_SEGMENT_SIZE + 1;
+	segment = uuid + UUID_FIRST_SEGMENT_INDEX_END + 1;
 
 	for (p = segment; p < segment + UUID_SIZE; p++) {
 
@@ -69,17 +65,19 @@ static fast_uuid_t *fs_check_segment(fast_uuid_t *fast_uuid) {
 		rb_raise(rb_eTypeError, "Invalid second segment");
 	    }
 
-	    if (fast_uuid->pos == UUID_SECOND_SEGMENT_END_INDEX) {
+	    ++fast_uuid->pos;
+
+	    if (fast_uuid->pos == UUID_SECOND_SEGMENT_INDEX_END) {
 		break;
 	    }
-	    ++fast_uuid->pos;
+
 	}
 
 	fast_uuid->current_segment_number = 2;
 	break;
 
     case 2:
-	segment = uuid + UUID_SECOND_SEGMENT_END_INDEX + 3;
+	segment = uuid + UUID_SECOND_SEGMENT_INDEX_END + 2;
 
 	for (p = segment; p < segment + UUID_SIZE; p++) {
 
@@ -90,7 +88,7 @@ static fast_uuid_t *fs_check_segment(fast_uuid_t *fast_uuid) {
 	    }
 
 	    // Check version number
-	    if (fast_uuid->pos == 11) {
+	    if (fast_uuid->pos == UUID_VERSION_INDEX) {
 		switch (ch) {
 
 		case '4':
@@ -103,10 +101,11 @@ static fast_uuid_t *fs_check_segment(fast_uuid_t *fast_uuid) {
 		}
 	    }
 
-	    if (fast_uuid->pos == UUID_THIRD_SEGMENT_END_INDEX) {
+	    ++fast_uuid->pos;
+
+	    if (fast_uuid->pos == UUID_THIRD_SEGMENT_INDEX_END) {
 		break;
 	    }
-	    ++fast_uuid->pos;
 
 	}
 
@@ -114,7 +113,7 @@ static fast_uuid_t *fs_check_segment(fast_uuid_t *fast_uuid) {
 	break;
 
     case 3:
-	segment = uuid + UUID_FOURTH_SEGMENT_SEGMENT_START_INDEX; // TODO: refactoring like this line
+	segment = uuid + UUID_THIRD_SEGMENT_INDEX_END + 3;
 
 	for (p = segment; p < segment + UUID_SIZE; p++) {
 
@@ -125,23 +124,22 @@ static fast_uuid_t *fs_check_segment(fast_uuid_t *fast_uuid) {
 	    }
 
 	    // TODO: check uuid variant
-	    if (fast_uuid->pos == 14) {
-		printf("[debug] variant = %c\n", ch);
-	    }
-
-	    if (fast_uuid->pos == UUID_FOURTH_SEGMENT_SEGMENT_START_INDEX - 3) {
-		break;
+	    if (fast_uuid->pos == 16) {
+		fast_uuid->variant = ch;
 	    }
 
 	    ++fast_uuid->pos;
 
+	    if (fast_uuid->pos == UUID_FOURTH_SEGMENT_SEGMENT_INDEX_END) {
+		break;
+	    }
 	}
 
 	fast_uuid->current_segment_number = 4;
 	break;
 
     case 4:
-	segment = uuid + UUID_FIFTH_SEGMENT_START_INDEX;
+	segment = uuid + UUID_FOURTH_SEGMENT_SEGMENT_INDEX_END + 4;
 
 	for (p = segment; p < segment + UUID_SIZE; p++) {
 
@@ -149,6 +147,12 @@ static fast_uuid_t *fs_check_segment(fast_uuid_t *fast_uuid) {
 
 	    if (ch == '-') {
 		rb_raise(rb_eTypeError, "Invalid fourth segment");
+	    }
+
+	    ++fast_uuid->pos;
+
+	    if (fast_uuid->pos == UUID_FIFTH_SEGMENT_INDEX_END) {
+		break;
 	    }
 	}
 
@@ -168,13 +172,6 @@ static VALUE fu_check_uuid(VALUE klass, VALUE value) {
 	.uuid = RSTRING_PTR(value)
     };
     char *p, ch;
-    enum {
-	start = 0,
-	segment_start,
-	done
-    } state;
-
-    state = start;
 
     if (strlen(RSTRING_PTR(value)) != UUID_SIZE) {
 	rb_raise(rb_eTypeError, "Invalid length for uuid");
