@@ -1,0 +1,2 @@
+docker build -t rubydev .
+docker run --mount type=bind,src=${PWD},dst=/opt/fast_uuidrb --rm -it rubydev bash
